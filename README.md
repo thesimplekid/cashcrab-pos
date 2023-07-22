@@ -1,6 +1,6 @@
 # cashcrab-pos
 
-Simple cashu point of sale. Creates invoice from configured mint once invoice is paid sends token to via nostr direct message to configured npub.
+Simple cashu point of sale. Creates invoice from configured mint once invoice is paid. cashu token is sent via nostr direct message to configured npub.
 
 ## License
 
