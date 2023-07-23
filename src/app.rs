@@ -1,7 +1,6 @@
 use std::time::Duration;
 use std::{
     collections::HashSet,
-    str::FromStr,
     sync::{Arc, Mutex},
 };
 
@@ -12,8 +11,8 @@ use cashu_crab::{
     Amount, Client as CashuClient, Invoice,
 };
 use gloo::storage::LocalStorage;
+use gloo::storage::Storage;
 use gloo::timers::future::sleep;
-use gloo_storage::Storage;
 use log::warn;
 use nostr_sdk::{prelude::FromPkStr, Client, Keys};
 use tokio::sync::Mutex as TokioMutex;
@@ -23,13 +22,13 @@ use yew::prelude::*;
 
 use crate::components::{
     invoice::InvoiceView, invoice_paid::InvoicePaid, pos::Pos, set_mint::SetMint,
-    set_rec_key::SetRecKey,
+    set_rec_key::SetRecKey, set_relays::SetRelays,
 };
 use crate::utls;
 
 pub const NOSTR_KEY: &str = "nostr_rec";
-
 pub const MINT_URL_KEY: &str = "mint_url";
+pub const RELAYS_KEY: &str = "relays";
 
 #[derive(Debug, Default, Clone)]
 pub enum View {
@@ -39,6 +38,7 @@ pub enum View {
     Pos,
     Invoice(Invoice),
     InvoicePaid,
+    SetRelays,
 }
 
 pub enum Msg {
@@ -49,6 +49,8 @@ pub enum Msg {
     AmountSet(Amount),
     InvoiceSet((Amount, RequestMintResponse)),
     InvoicePaid((Amount, Token)),
+    AddRelay(Url),
+    RelaysSet,
     Home,
 }
 
@@ -56,20 +58,17 @@ pub enum Msg {
 pub struct App {
     view: View,
     nostr_receice_pubkey: Option<Keys>,
+    relays: HashSet<Url>,
     wallet: Arc<Mutex<Option<Wallet>>>,
     nostr_client: Arc<TokioMutex<Option<Client>>>,
     unpaid_invoices: HashSet<String>,
 }
 
 // Creates the websocket client that is used for communicating with relays
-async fn create_client(
-    keys: &Keys,
-    relays: Vec<String>,
-    client_cb: Callback<Client>,
-) -> Result<()> {
+async fn create_client(keys: &Keys, relays: Vec<Url>, client_cb: Callback<Client>) -> Result<()> {
     let client = Client::new(keys);
-    // let r: Vec<(String, Option<SocketAddr>)> = relays.into_iter().map(|url| (url, None)).collect();
-    client.add_relays(relays).await?;
+    let r: Vec<String> = relays.into_iter().map(|url| url.to_string()).collect();
+    client.add_relays(r).await?;
     client.connect().await;
     client_cb.emit(client);
     Ok(())
@@ -88,11 +87,15 @@ impl App {
     fn app_view(&self) -> View {
         let wallet = self.wallet.lock().unwrap().clone();
         let key = self.nostr_receice_pubkey.clone();
-        match (key, wallet) {
-            (Some(_), Some(_)) => View::Pos,
-            (None, Some(_)) => View::SetRecKey,
-            (Some(_), None) => View::SetMint,
-            (None, None) => View::SetMint,
+
+        log::debug!("{:?}", self.relays);
+
+        match (key, wallet, self.relays.is_empty()) {
+            (Some(_), Some(_), false) => View::Pos,
+            (None, Some(_), _) => View::SetRecKey,
+            (Some(_), None, _) => View::SetMint,
+            (None, None, _) => View::SetMint,
+            (Some(_), Some(_), true) => View::SetRelays,
         }
     }
 
@@ -148,6 +151,16 @@ impl App {
 
         Ok(())
     }
+
+    async fn add_relay(&self, relay: Url) -> Result<()> {
+        log::debug!("i{:?}", relay);
+        if let Some(nostr_client) = self.nostr_client.lock().await.clone() {
+            log::debug!("client some");
+            nostr_client.add_relay(&relay.to_string());
+            nostr_client.connect();
+        }
+        Ok(())
+    }
 }
 
 impl Component for App {
@@ -155,14 +168,16 @@ impl Component for App {
     type Properties = ();
 
     fn create(ctx: &Context<Self>) -> Self {
-        let mint_url: Option<Url> = LocalStorage::get::<String>(MINT_URL_KEY)
-            .ok()
-            .and_then(|u| Url::from_str(&u).ok());
+        let mint_url: Option<Url> = LocalStorage::get::<Url>(MINT_URL_KEY).ok();
 
         let nostr_rec_key: Option<Keys> = LocalStorage::get::<String>(NOSTR_KEY)
             .ok()
             .and_then(|u| serde_json::from_str(u.as_str()).map(|k: String| k).ok())
             .and_then(|u| Keys::from_pk_str(&u).ok());
+
+        let relays: HashSet<Url> = LocalStorage::get(RELAYS_KEY).unwrap_or_default();
+
+        let relays_vec = relays.iter().cloned().collect();
 
         match (mint_url, nostr_rec_key) {
             (Some(url), Some(pubkey)) => {
@@ -174,20 +189,20 @@ impl Component for App {
                 spawn_local(async move {
                     // TODO: Set relays
 
-                    create_client(&keys, vec!["wss://relay.damus.io".to_string()], client_cb)
-                        .await
-                        .unwrap();
+                    create_client(&keys, relays_vec, client_cb).await.unwrap();
                     create_wallet(&url, wallet_cb).await.unwrap();
                 });
 
                 Self {
                     view: View::Pos,
                     nostr_receice_pubkey: Some(pubkey),
+                    relays,
                     ..Default::default()
                 }
             }
             // Mint Url is not set
             (None, None) => Self {
+                relays,
                 ..Default::default()
             },
             // Mint url is set but user not logged in
@@ -200,12 +215,14 @@ impl Component for App {
 
                 Self {
                     view: View::SetRecKey,
+                    relays,
                     ..Default::default()
                 }
             }
             (None, Some(pubkey)) => Self {
                 nostr_receice_pubkey: Some(pubkey),
                 view: View::SetMint,
+                relays,
                 ..Default::default()
             },
         }
@@ -288,17 +305,36 @@ impl Component for App {
 
                 true
             }
+            Msg::AddRelay(relay) => {
+                log::debug!("Msg: {:?}", relay);
+                let mut app = self.clone();
+                let relay_clone = relay.clone();
+                spawn_local(async move {
+                    let _ = app.add_relay(relay).await;
+                });
+                self.relays.insert(relay_clone);
+
+                log::debug!("relays: {:?}", self.relays);
+                LocalStorage::set(RELAYS_KEY, self.relays.clone()).ok();
+
+                true
+            }
+            Msg::RelaysSet => {
+                self.view = self.app_view();
+
+                true
+            }
         }
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         log::debug!("{:?}", self.view);
         html! {
-                        <main>
+            <main>
 
                     {
 
-                         match &self.view {
+                match &self.view {
                     View::Pos => {
                         let amount_cb = ctx.link().callback(Msg::AmountSet);
 
@@ -344,6 +380,14 @@ impl Component for App {
                         html!{
                             <InvoicePaid {home_cb} />
 
+                        }
+                    }
+                    View::SetRelays => {
+                        let relays_set_cb = ctx.link().callback(|_| Msg::RelaysSet);
+                        let add_relay_cb = ctx.link().callback(Msg::AddRelay);
+
+                        html!{
+                            <SetRelays {add_relay_cb} {relays_set_cb} />
                         }
                     }
                 }

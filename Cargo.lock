@@ -213,7 +213,6 @@ dependencies = [
  "cashu-crab",
  "gloo",
  "gloo-net",
- "gloo-storage",
  "js-sys",
  "log",
  "nostr-sdk",
