@@ -22,7 +22,7 @@ use yew::prelude::*;
 
 use crate::components::{
     invoice::InvoiceView, invoice_paid::InvoicePaid, pos::Pos, set_mint::SetMint,
-    set_rec_key::SetRecKey, set_relays::SetRelays,
+    set_rec_key::SetRecKey, set_relays::SetRelays, settings::Settings,
 };
 use crate::utls;
 
@@ -39,6 +39,7 @@ pub enum View {
     Invoice(Invoice),
     InvoicePaid,
     SetRelays,
+    Settings,
 }
 
 pub enum Msg {
@@ -52,6 +53,10 @@ pub enum Msg {
     AddRelay(Url),
     RelaysSet,
     Home,
+    Settings,
+    AddRelayView,
+    SetMintView,
+    SetPubkeyView,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -324,6 +329,22 @@ impl Component for App {
 
                 true
             }
+            Msg::Settings => {
+                self.view = View::Settings;
+                true
+            }
+            Msg::SetPubkeyView => {
+                self.view = View::SetRecKey;
+                true
+            }
+            Msg::SetMintView => {
+                self.view = View::SetMint;
+                true
+            }
+            Msg::AddRelayView => {
+                self.view = View::SetRelays;
+                true
+            }
         }
     }
 
@@ -337,12 +358,14 @@ impl Component for App {
                 match &self.view {
                     View::Pos => {
                         let amount_cb = ctx.link().callback(Msg::AmountSet);
+                        let settings_cb = ctx.link().callback(|_| Msg::Settings);
 
                         html!{
                             <>
+                            <div style="display: flex; justify-content: flex-end;">
+                              <button class="px-6 py-2 mt-2 rounded-sm shadow-sm dark:bg-violet-400 dark:text-gray-900" onclick={settings_cb.clone()}>{"Settings"}</button>
+                            </div>
                             <Pos {amount_cb} />
-
-
                             </>
                         }
 
@@ -353,7 +376,6 @@ impl Component for App {
                         html! {
                             <>
                              <SetMint {mint_set_cb} />
-
                             </>
                         }
                     }
@@ -365,21 +387,18 @@ impl Component for App {
                         html!{
                         <>
                             <SetRecKey logged_in_callback={set_rec_key}/>
-
                         </>
                         }
                     }
                     View::Invoice(invoice) => {
                         html!{
                             <InvoiceView invoice={invoice.clone()} />
-
                         }
                     }
                     View::InvoicePaid => {
                         let home_cb = ctx.link().callback(|_| Msg::Home);
                         html!{
                             <InvoicePaid {home_cb} />
-
                         }
                     }
                     View::SetRelays => {
@@ -389,6 +408,17 @@ impl Component for App {
                         html!{
                             <SetRelays {add_relay_cb} {relays_set_cb} />
                         }
+                    }
+                    View::Settings => {
+                        let add_relay_cb = ctx.link().callback(|_| Msg::AddRelayView);
+                        let set_pubkey_cb = ctx.link().callback(|_| Msg::SetPubkeyView);
+                        let set_mint_cb = ctx.link().callback(|_| Msg::SetMintView);
+                        let home_cb = ctx.link().callback(|_| Msg::Home);
+
+                        html! {
+                            <Settings {add_relay_cb} {set_pubkey_cb} {set_mint_cb} {home_cb} />
+                            }
+
                     }
                 }
         }
