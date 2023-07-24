@@ -380,9 +380,7 @@ impl Component for App {
                         }
                     }
                     View::SetRecKey => {
-
                         let set_rec_key = ctx.link().callback(Msg::NostrRecKeySet);
-
 
                         html!{
                         <>
@@ -417,13 +415,13 @@ impl Component for App {
 
                         html! {
                             <Settings {add_relay_cb} {set_pubkey_cb} {set_mint_cb} {home_cb} />
-                            }
+                        }
 
                     }
                 }
         }
 
-                </main>
+        </main>
         }
     }
 }
