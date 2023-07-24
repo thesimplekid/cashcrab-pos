@@ -389,8 +389,9 @@ impl Component for App {
                         }
                     }
                     View::Invoice(invoice) => {
+                        let home_cb = ctx.link().callback(|_| Msg::Home);
                         html!{
-                            <InvoiceView invoice={invoice.clone()} />
+                            <InvoiceView invoice={invoice.clone()} {home_cb} />
                         }
                     }
                     View::InvoicePaid => {

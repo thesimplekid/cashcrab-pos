@@ -1,5 +1,4 @@
 use cashu_crab::Amount;
-use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq, Clone)]

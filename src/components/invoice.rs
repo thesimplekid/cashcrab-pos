@@ -7,6 +7,7 @@ use yew::virtual_dom::VNode;
 #[derive(Properties, PartialEq, Clone)]
 pub struct Props {
     pub invoice: Invoice,
+    pub home_cb: Callback<MouseEvent>,
 }
 
 #[derive(Default)]
@@ -44,9 +45,10 @@ impl Component for InvoiceView {
           <a class="block p-6 bg-white border border-gray-200 rounded-lg shadow hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-700 dark:hover:bg-gray-700">
             <div class="flex flex-col items-center">
 
-                 { self.invoice_qr.clone() }
+                { self.invoice_qr.clone() }
 
-                    <p class="flex-1 dark:text-gray-400" style="max-width: 33vw; word-wrap: break-word;">{ctx.props().invoice.to_string() }</p>
+                <p class="flex-1 dark:text-gray-400" style="max-width: 33vw; word-wrap: break-word;">{ctx.props().invoice.to_string() }</p>
+                <button class="block w-full text-5xl lg:text-xl p-6 my-2 rounded-sm shadow-sm dark:bg-violet-400 dark:text-gray-900" onclick={ctx.props().home_cb.clone()}>{"Cancel"}</button>
 
             </div>
           </a>
