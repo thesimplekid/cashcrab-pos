@@ -36,7 +36,7 @@ pub enum View {
     SetMint,
     SetRecKey,
     Pos,
-    Invoice(Invoice),
+    Invoice((Invoice, String)),
     InvoicePaid,
     SetRelays,
     Settings,
@@ -47,8 +47,8 @@ pub enum Msg {
     MintUrlSet(Url),
     ClientCreated(Client),
     WalletCreated(Wallet),
-    AmountSet(Amount),
-    InvoiceSet((Amount, RequestMintResponse)),
+    AmountSet((Amount, String)),
+    InvoiceSet((Amount, String, RequestMintResponse)),
     InvoicePaid((Amount, Token)),
     AddRelay(Url),
     RelaysSet,
@@ -107,14 +107,15 @@ impl App {
     async fn get_invoice(
         &self,
         amount: Amount,
-        invoice_cb: Callback<(Amount, RequestMintResponse)>,
+        fiat_value: String,
+        invoice_cb: Callback<(Amount, String, RequestMintResponse)>,
     ) -> Result<()> {
         let wallet = self.wallet.lock().unwrap().clone();
 
         if let Some(wallet) = wallet {
             let invoice = wallet.request_mint(amount).await?;
 
-            invoice_cb.emit((amount, invoice))
+            invoice_cb.emit((amount, fiat_value, invoice))
         }
 
         Ok(())
@@ -161,8 +162,8 @@ impl App {
         log::debug!("i{:?}", relay);
         if let Some(nostr_client) = self.nostr_client.lock().await.clone() {
             log::debug!("client some");
-            nostr_client.add_relay(&relay.to_string());
-            nostr_client.connect();
+            nostr_client.add_relay(&relay.to_string()).await?;
+            nostr_client.connect().await;
         }
         Ok(())
     }
@@ -270,18 +271,18 @@ impl Component for App {
                 });
                 true
             }
-            Msg::AmountSet(amount) => {
+            Msg::AmountSet((amount, fiat_value)) => {
                 let get_invoice_cb = ctx.link().callback(Msg::InvoiceSet);
                 let app = self.clone();
                 spawn_local(async move {
-                    if let Err(err) = app.get_invoice(amount, get_invoice_cb).await {
+                    if let Err(err) = app.get_invoice(amount, fiat_value, get_invoice_cb).await {
                         warn!("Could not create wallet {:?}", err);
                     }
                 });
                 true
             }
-            Msg::InvoiceSet((amount, invoice_response)) => {
-                self.view = View::Invoice(invoice_response.pr);
+            Msg::InvoiceSet((amount, fiat_value, invoice_response)) => {
+                self.view = View::Invoice((invoice_response.pr, fiat_value));
                 self.unpaid_invoices.insert(invoice_response.hash.clone());
 
                 let invoice_paid_cb = ctx.link().callback(Msg::InvoicePaid);
@@ -312,7 +313,7 @@ impl Component for App {
             }
             Msg::AddRelay(relay) => {
                 log::debug!("Msg: {:?}", relay);
-                let mut app = self.clone();
+                let app = self.clone();
                 let relay_clone = relay.clone();
                 spawn_local(async move {
                     let _ = app.add_relay(relay).await;
@@ -388,10 +389,10 @@ impl Component for App {
                         </>
                         }
                     }
-                    View::Invoice(invoice) => {
+                    View::Invoice((invoice, fiat_value)) => {
                         let home_cb = ctx.link().callback(|_| Msg::Home);
                         html!{
-                            <InvoiceView invoice={invoice.clone()} {home_cb} />
+                            <InvoiceView invoice={invoice.clone()} fiat_value={fiat_value.clone()} {home_cb} />
                         }
                     }
                     View::InvoicePaid => {
